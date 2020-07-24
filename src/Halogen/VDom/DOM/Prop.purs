@@ -15,29 +15,26 @@ import Data.Function.Uncurried as Fn
 import Data.Maybe (Maybe(..))
 import Data.Nullable (null, toNullable)
 import Data.Tuple (Tuple(..), fst, snd)
-import Effect (Effect)
 import Effect.Ref as Ref
 import Effect.Uncurried as EFn
 import Foreign (typeOf)
 import Foreign.Object as Object
 import Halogen.VDom as V
+import Halogen.VDom.HostConfig (HostConfig)
 import Halogen.VDom.Machine (Step'(..), mkStep)
 import Halogen.VDom.Types (Namespace(..))
 import Halogen.VDom.Util as Util
 import Unsafe.Coerce (unsafeCoerce)
-import Web.DOM.Element (Element) as DOM
-import Web.Event.Event (EventType(..), Event) as DOM
-import Web.Event.EventTarget (eventListener) as DOM
 
 -- | Attributes, properties, event handlers, and element lifecycles.
 -- | Parameterized by the type of handlers outputs.
-data Prop a
+data Prop evt node a
   = Attribute (Maybe Namespace) String String
   | Property String PropValue
-  | Handler DOM.EventType (DOM.Event → Maybe a)
-  | Ref (ElemRef DOM.Element → Maybe a)
+  | Handler String (evt -> Maybe a)
+  | Ref (ElemRef node → Maybe a)
 
-instance functorProp ∷ Functor Prop where
+instance functorProp ∷ Functor (Prop evt node) where
   map f (Handler ty g) = Handler ty (map f <$> g)
   map f (Ref g) = Ref (map f <$> g)
   map f p = unsafeCoerce p
@@ -68,12 +65,14 @@ propFromNumber = unsafeCoerce
 -- | An emitter effect must be provided to respond to events. For example,
 -- | to allow arbitrary effects in event handlers, one could use `id`.
 buildProp
-  ∷ ∀ a
-  . (a → Effect Unit)
-  → DOM.Element
-  → V.Machine (Array (Prop a)) Unit
-buildProp emit el = renderProp
+  ∷ ∀ evt node a
+  . HostConfig evt node
+  -> (EFn.EffectFn1 a Unit)
+  → node
+  → V.Machine (Array (Prop evt node a)) Unit
+buildProp hconf emit el = renderProp
   where
+  removePropertyGo = removeProperty hconf
   renderProp = EFn.mkEffectFn1 \ps1 → do
     events ← Util.newMutMap
     ps1' ← EFn.runEffectFn3 Util.strMapWithIxE ps1 propToStrKey (applyProp events)
@@ -106,29 +105,30 @@ buildProp emit el = renderProp
       _ → pure unit
 
   mbEmit = EFn.mkEffectFn1 case _ of
-    Just a → emit a
+    Just a → EFn.runEffectFn1 emit a
     _ → pure unit
 
   applyProp events = EFn.mkEffectFn3 \_ _ v →
     case v of
       Attribute ns attr val → do
-        EFn.runEffectFn4 Util.setAttribute (toNullable ns) attr val el
+        EFn.runEffectFn4 hconf.setAttribute (toNullable ns) attr val el
         pure v
       Property prop val → do
         EFn.runEffectFn3 setProperty prop val el
         pure v
-      Handler (DOM.EventType ty) f → do
+      Handler ty f → do
         case Fn.runFn2 Util.unsafeGetAny ty events of
           handler | Fn.runFn2 Util.unsafeHasAny ty events → do
             Ref.write f (snd handler)
             pure v
           _ → do
             ref ← Ref.new f
-            listener ← DOM.eventListener \ev → do
+            -- listener ← DOM.eventListener \ev → do
+            listener ← EFn.runEffectFn1 hconf.makeEventListener \ev → do
               f' ← Ref.read ref
               EFn.runEffectFn1 mbEmit (f' ev)
             EFn.runEffectFn3 Util.pokeMutMap ty (Tuple listener ref) events
-            EFn.runEffectFn3 Util.addEventListener ty listener el
+            EFn.runEffectFn3 hconf.addEventListener ty listener el
             pure v
       Ref f → do
         EFn.runEffectFn1 mbEmit (f (Created el))
@@ -140,7 +140,7 @@ buildProp emit el = renderProp
         if val1 == val2
           then pure v2
           else do
-            EFn.runEffectFn4 Util.setAttribute (toNullable ns2) attr2 val2 el
+            EFn.runEffectFn4 hconf.setAttribute (toNullable ns2) attr2 val2 el
             pure v2
       Property _ val1, Property prop2 val2 →
         case Fn.runFn2 Util.refEq val1 val2, prop2 of
@@ -156,7 +156,7 @@ buildProp emit el = renderProp
           _, _ → do
             EFn.runEffectFn3 setProperty prop2 val2 el
             pure v2
-      Handler _ _, Handler (DOM.EventType ty) f → do
+      Handler _ _, Handler ty f → do
         let
           handler = Fn.runFn2 Util.unsafeLookup ty prevEvents
         Ref.write f (snd handler)
@@ -168,34 +168,34 @@ buildProp emit el = renderProp
   removeProp prevEvents = EFn.mkEffectFn2 \_ v →
     case v of
       Attribute ns attr _ →
-        EFn.runEffectFn3 Util.removeAttribute (toNullable ns) attr el
+        EFn.runEffectFn3 hconf.removeAttribute (toNullable ns) attr el
       Property prop _ →
-        EFn.runEffectFn2 removeProperty prop el
-      Handler (DOM.EventType ty) _ → do
+        EFn.runEffectFn2 removePropertyGo prop el
+      Handler ty _ → do
         let
           handler = Fn.runFn2 Util.unsafeLookup ty prevEvents
-        EFn.runEffectFn3 Util.removeEventListener ty (fst handler) el
+        EFn.runEffectFn3 hconf.removeEventListener ty (fst handler) el
       Ref _ →
         pure unit
 
-propToStrKey ∷ ∀ i. Prop i → String
+propToStrKey ∷ ∀ evt node i. Prop evt node i → String
 propToStrKey = case _ of
   Attribute (Just (Namespace ns)) attr _ → "attr/" <> ns <> ":" <> attr
   Attribute _ attr _ → "attr/:" <> attr
   Property prop _ → "prop/" <> prop
-  Handler (DOM.EventType ty) _ → "handler/" <> ty
+  Handler ty _ → "handler/" <> ty
   Ref _ → "ref"
 
-setProperty ∷ EFn.EffectFn3 String PropValue DOM.Element Unit
+setProperty ∷ forall node. EFn.EffectFn3 String PropValue node Unit
 setProperty = Util.unsafeSetAny
 
-unsafeGetProperty ∷ Fn.Fn2 String DOM.Element PropValue
+unsafeGetProperty ∷ forall node. Fn.Fn2 String node PropValue
 unsafeGetProperty = Util.unsafeGetAny
 
-removeProperty ∷ EFn.EffectFn2 String DOM.Element Unit
-removeProperty = EFn.mkEffectFn2 \key el →
-  EFn.runEffectFn3 Util.hasAttribute null key el >>= if _
-    then EFn.runEffectFn3 Util.removeAttribute null key el
+removeProperty ∷ forall node evt. HostConfig evt node -> EFn.EffectFn2 String node Unit
+removeProperty hconf = EFn.mkEffectFn2 \key el →
+  EFn.runEffectFn3 hconf.hasAttribute null key el >>= if _
+    then EFn.runEffectFn3 hconf.removeAttribute null key el
     else case typeOf (Fn.runFn2 Util.unsafeGetAny key el) of
       "string" → EFn.runEffectFn3 Util.unsafeSetAny key "" el
       _        → case key of

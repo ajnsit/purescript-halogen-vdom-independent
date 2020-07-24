@@ -16,17 +16,6 @@ module Halogen.VDom.Util
   , diffWithKeyAndIxE
   , strMapWithIxE
   , refEq
-  , createTextNode
-  , setTextContent
-  , createElement
-  , insertChildIx
-  , removeChild
-  , parentNode
-  , setAttribute
-  , removeAttribute
-  , hasAttribute
-  , addEventListener
-  , removeEventListener
   , JsUndefined
   , jsUndefined
   ) where
@@ -34,19 +23,13 @@ module Halogen.VDom.Util
 import Prelude
 
 import Data.Function.Uncurried as Fn
-import Data.Nullable (Nullable)
 import Effect (Effect)
 import Effect.Uncurried as EFn
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import Foreign.Object.ST (STObject)
 import Foreign.Object.ST as STObject
-import Halogen.VDom.Types (Namespace, ElemName)
 import Unsafe.Coerce (unsafeCoerce)
-import Web.DOM.Document (Document) as DOM
-import Web.DOM.Element (Element) as DOM
-import Web.DOM.Node (Node) as DOM
-import Web.Event.EventTarget (EventListener) as DOM
 
 newMutMap ∷ ∀ r a. Effect (STObject r a)
 newMutMap = unsafeCoerce STObject.new
@@ -133,39 +116,6 @@ foreign import strMapWithIxE
 
 foreign import refEq
   ∷ ∀ a b. Fn.Fn2 a b Boolean
-
-foreign import createTextNode
-  ∷ EFn.EffectFn2 String DOM.Document DOM.Node
-
-foreign import setTextContent
-  ∷ EFn.EffectFn2 String DOM.Node Unit
-
-foreign import createElement
-  ∷ EFn.EffectFn3 (Nullable Namespace) ElemName DOM.Document DOM.Element
-
-foreign import insertChildIx
-  ∷ EFn.EffectFn3 Int DOM.Node DOM.Node Unit
-
-foreign import removeChild
-  ∷ EFn.EffectFn2 DOM.Node DOM.Node Unit
-
-foreign import parentNode
-  ∷ EFn.EffectFn1 DOM.Node DOM.Node
-
-foreign import setAttribute
-  ∷ EFn.EffectFn4 (Nullable Namespace) String String DOM.Element Unit
-
-foreign import removeAttribute
-  ∷ EFn.EffectFn3 (Nullable Namespace) String DOM.Element Unit
-
-foreign import hasAttribute
-  ∷ EFn.EffectFn3 (Nullable Namespace) String DOM.Element Boolean
-
-foreign import addEventListener
-  ∷ EFn.EffectFn3 String DOM.EventListener DOM.Element Unit
-
-foreign import removeEventListener
-  ∷ EFn.EffectFn3 String DOM.EventListener DOM.Element Unit
 
 foreign import data JsUndefined ∷ Type
 
