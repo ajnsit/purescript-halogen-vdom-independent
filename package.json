@@ -10,6 +10,5 @@
     "rimraf": "^2.6.3",
     "spago": "^0.15.3"
   },
-  "dependencies": {
-  }
+  "dependencies": {}
 }
