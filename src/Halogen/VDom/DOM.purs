@@ -329,3 +329,22 @@ eqElemSpec = Fn.mkFn4 \ns1 (ElemName name1) ns2 (ElemName name2) →
       Nothing, Nothing → true
       _, _ → false
     else false
+
+-- A Simple decorated-vdom machine that just delegates everything to the underlying vdom
+buildDecoration
+  ∷ ∀ decor a w evt node
+  . HostConfig evt node
+  → (decor (VDom a w) -> VDom a w)
+  → VDomSpec node a w
+  → Machine (decor (VDom a w)) node
+buildDecoration hconf runDecoration = renderDecoration
+  where
+  renderDecoration ∷ VDomSpec node a w → Machine (decor (VDom a w)) node
+  renderDecoration spec = EFn.mkEffectFn1 \t → do
+    vdom ← EFn.runEffectFn1 (buildVDom hconf spec) (runDecoration t)
+    pure $ mkStep $ Step (extract vdom) vdom patchDecoration halt
+
+  patchDecoration ∷ EFn.EffectFn2 (Step (VDom a w) node) (decor (VDom a w)) (Step (decor (VDom a w)) node)
+  patchDecoration = EFn.mkEffectFn2 \vdomPrev t → do
+    vdom ← EFn.runEffectFn2 step vdomPrev (runDecoration t)
+    pure $ mkStep $ Step (extract vdom) vdom patchDecoration halt

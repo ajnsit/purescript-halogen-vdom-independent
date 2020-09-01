@@ -67,7 +67,7 @@ propFromNumber = unsafeCoerce
 buildProp
   ∷ ∀ evt node a
   . HostConfig evt node
-  -> (EFn.EffectFn1 a Unit)
+  → (EFn.EffectFn1 a Unit)
   → node
   → V.Machine (Array (Prop evt node a)) Unit
 buildProp hconf emit el = renderProp
