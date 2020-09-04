@@ -257,6 +257,8 @@ patchKeyed hconf = patchKeyedGo
             let
               onThese = EFn.mkEffectFn4 \_ ix' s (Tuple _ v) → do
                 res ← EFn.runEffectFn2 step s v
+                -- AJ: TODO: This should check if the parents are the same and then not insert the new child
+                -- AJ: TODO: This is harder to detect and optimise on the backend with lesser information
                 EFn.runEffectFn3 hconf.insertChildIx ix' (extract res) node
                 pure res
               onThis = EFn.mkEffectFn2 \_ s → EFn.runEffectFn1 halt s
