@@ -5,6 +5,7 @@ You can edit this file as you like.
 { name = "halogen-vdom-independent"
 , dependencies =
   [ "bifunctors"
+  , "profunctor"
   , "console"
   , "effect"
   , "exists"

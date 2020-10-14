@@ -11,6 +11,7 @@ module Halogen.VDom.Machine
 
 import Prelude
 
+import Data.Profunctor (class Profunctor, dimap)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -25,6 +26,11 @@ mkStep = unsafeCoerce
 
 unStep :: ∀ a b r. (∀ s. Step' a b s → r) → Step a b → r
 unStep = unsafeCoerce
+
+instance profunctorStep :: Profunctor Step where
+  dimap l r = unStep \(Step b s m h) ->
+    let m' = mkEffectFn2 \s0 a -> dimap l r <$> runEffectFn2 m s0 (l a)
+    in mkStep $ Step (r b) s m' h
 
 -- | Returns the output value of a `Step`.
 extract ∷ ∀ a b. Step a b → b
