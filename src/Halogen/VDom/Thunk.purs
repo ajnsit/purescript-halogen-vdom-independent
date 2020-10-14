@@ -76,36 +76,33 @@ unsafeEqThunk = Fn.mkFn2 \(Thunk a1 b1 _ d1) (Thunk a2 b2 _ d2) →
   Fn.runFn2 Util.refEq b1 b2 &&
   Fn.runFn2 b1 d1 d2
 
-type ThunkState node x view =
+type ThunkState node x =
   { thunk ∷ Thunk x
-  , step ∷ M.Step view node
+  , step ∷ M.Step x node
   }
 
 buildThunk
-  ∷ ∀ x view node
-  . (EFn.EffectFn1 x view)
-  → (EFn.EffectFn1 x (M.Machine view node))
+  ∷ ∀ x node
+  . (EFn.EffectFn1 x (M.Machine x node))
   → M.Machine (Thunk x) node
-buildThunk render mkMachine = renderThunk
+buildThunk mkMachine = renderThunk
   where
   renderThunk ∷ M.Machine (Thunk x) node
   renderThunk = EFn.mkEffectFn1 \t → do
     let x = runThunk t
     machine <- EFn.runEffectFn1 mkMachine x
-    vdom ← EFn.runEffectFn1 render x
-    step ← EFn.runEffectFn1 machine vdom
+    step ← EFn.runEffectFn1 machine x
     pure $ M.mkStep $ M.Step (M.extract step) { thunk: t, step } patchThunk haltThunk
 
-  patchThunk ∷ EFn.EffectFn2 (ThunkState node x view) (Thunk x) (M.Step (Thunk x) node)
+  patchThunk ∷ EFn.EffectFn2 (ThunkState node x) (Thunk x) (M.Step (Thunk x) node)
   patchThunk = EFn.mkEffectFn2 \state t2 → do
     let { step: prev, thunk: t1 } = state
     if Fn.runFn2 unsafeEqThunk t1 t2
       then pure $ M.mkStep $ M.Step (M.extract prev) state patchThunk haltThunk
       else do
-        vdom ← EFn.runEffectFn1 render (runThunk t2)
-        step ← EFn.runEffectFn2 M.step prev vdom
+        step ← EFn.runEffectFn2 M.step prev (runThunk t2)
         pure $ M.mkStep $ M.Step (M.extract step) { step, thunk: t2 } patchThunk haltThunk
 
-  haltThunk ∷ EFn.EffectFn1 (ThunkState node x view) Unit
+  haltThunk ∷ EFn.EffectFn1 (ThunkState node x) Unit
   haltThunk = EFn.mkEffectFn1 \state → do
     EFn.runEffectFn1 M.halt state.step
