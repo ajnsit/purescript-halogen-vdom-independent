@@ -12,9 +12,6 @@ import Prelude
 
 import Data.Function.Uncurried as Fn
 import Effect.Uncurried as EFn
-import Halogen.VDom (Machine, Step, VDom) as V
-import Halogen.VDom.DOM (VDomSpec, buildVDom) as V
-import Halogen.VDom.HostConfig (HostConfig)
 import Halogen.VDom.Machine as M
 import Halogen.VDom.Util as Util
 import Unsafe.Coerce (unsafeCoerce)
@@ -79,33 +76,36 @@ unsafeEqThunk = Fn.mkFn2 \(Thunk a1 b1 _ d1) (Thunk a2 b2 _ d2) →
   Fn.runFn2 Util.refEq b1 b2 &&
   Fn.runFn2 b1 d1 d2
 
-type ThunkState node x a w =
+type ThunkState node x view =
   { thunk ∷ Thunk x
-  , vdom ∷ M.Step (V.VDom a w) node
+  , step ∷ M.Step view node
   }
 
 buildThunk
-  ∷ ∀ x a w evt node
-  . HostConfig evt node
-  -> (x → V.VDom a w)
-  → V.VDomSpec node a w
-  → V.Machine (Thunk x) node
-buildThunk hconf toVDom = renderThunk
+  ∷ ∀ x view node
+  . (EFn.EffectFn1 x view)
+  → (EFn.EffectFn1 x (M.Machine view node))
+  → M.Machine (Thunk x) node
+buildThunk render mkMachine = renderThunk
   where
-  renderThunk ∷ V.VDomSpec node a w → V.Machine (Thunk x) node
-  renderThunk spec = EFn.mkEffectFn1 \t → do
-    vdom ← EFn.runEffectFn1 (V.buildVDom hconf spec) (toVDom (runThunk t))
-    pure $ M.mkStep $ M.Step (M.extract vdom) { thunk: t, vdom } patchThunk haltThunk
+  renderThunk ∷ M.Machine (Thunk x) node
+  renderThunk = EFn.mkEffectFn1 \t → do
+    let x = runThunk t
+    machine <- EFn.runEffectFn1 mkMachine x
+    vdom ← EFn.runEffectFn1 render x
+    step ← EFn.runEffectFn1 machine vdom
+    pure $ M.mkStep $ M.Step (M.extract step) { thunk: t, step } patchThunk haltThunk
 
-  patchThunk ∷ EFn.EffectFn2 (ThunkState node x a w) (Thunk x) (V.Step (Thunk x) node)
+  patchThunk ∷ EFn.EffectFn2 (ThunkState node x view) (Thunk x) (M.Step (Thunk x) node)
   patchThunk = EFn.mkEffectFn2 \state t2 → do
-    let { vdom: prev, thunk: t1 } = state
+    let { step: prev, thunk: t1 } = state
     if Fn.runFn2 unsafeEqThunk t1 t2
       then pure $ M.mkStep $ M.Step (M.extract prev) state patchThunk haltThunk
       else do
-        vdom ← EFn.runEffectFn2 M.step prev (toVDom (runThunk t2))
-        pure $ M.mkStep $ M.Step (M.extract vdom) { vdom, thunk: t2 } patchThunk haltThunk
+        vdom ← EFn.runEffectFn1 render (runThunk t2)
+        step ← EFn.runEffectFn2 M.step prev vdom
+        pure $ M.mkStep $ M.Step (M.extract step) { step, thunk: t2 } patchThunk haltThunk
 
-  haltThunk ∷ EFn.EffectFn1 (ThunkState node x a w) Unit
+  haltThunk ∷ EFn.EffectFn1 (ThunkState node x view) Unit
   haltThunk = EFn.mkEffectFn1 \state → do
-    EFn.runEffectFn1 M.halt state.vdom
+    EFn.runEffectFn1 M.halt state.step
